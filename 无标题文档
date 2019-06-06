@@ -1,0 +1,22 @@
+
+获取所有的歌手分类						获取所有榜单的信息,解析出id来
+https://music.163.com/discover/artist				https://music.163.com/discover/toplist
+
+
+获取当前歌手分类的分页,initial参数变动即可				获取该榜单下的歌曲信息,将歌曲id解析出来
+https://music.163.com/discover/artist/cat?id=1001&initial=-1		https://music.163.com/discover/toplist?id=3779629
+
+
+在当前分页下获取歌手的信息(名称与ID)
+https://music.163.com/artist?id=5781
+
+
+
+在歌手的信息页面下获取他热门歌曲的ID,只需要id即可
+https://music.163.com/song?id=417859631
+
+
+
+
+此链接可下载歌曲,转换id即可
+http://music.163.com/song/media/outer/url?id=417859631
