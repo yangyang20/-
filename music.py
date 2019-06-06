@@ -16,7 +16,8 @@ session = requests.session()
 songDdetails = {}
 # 歌手信息
 singerInformation ={}
-
+# 计数器
+Counter = {}
 
 # 获取歌手分类的id
 def singClassifyList():
@@ -51,13 +52,13 @@ def singPage(id):
         # 循环分页,获取所有分页的歌手href
         for item in pageHref:
             href = item['href']
-            singList(href)
+            result = singList(href)
     except Exception:
         print('singPage有问题')
         # print(url)
         time.sleep(0.2)
-        singPage(id)
-
+        # singPage(id)
+        return None
 # 多进程爬取
 def myProcess():
     with ProcessPoolExecutor(max_workers=26) as executor:
@@ -83,14 +84,14 @@ def singList(href):
             # 以歌手的id为索引,方便查歌曲信息
             singerInformation['singId'] = int(id)
             songDdetails['singId'] = int(id)
-            insert_mysql()
-            singerPopularSong(id)
+            # insert_mysql()
+            result = singerPopularSong(id)
     except Exception:
         print('singList有问题')
         print(url)
         time.sleep(0.3)
-        singList(href)
-
+        # singList(href)
+        return None
 # 获取每个歌手热门歌曲的id
 def singerPopularSong(id):
     url = 'https://music.163.com/artist?id=%s' % id
@@ -104,12 +105,13 @@ def singerPopularSong(id):
             songDdetails['songName'] = text
             # 将链接中的歌曲id解析出来
             songDdetails['_id'] = str(re.findall(r'id=(\d+)',href))[2:-2]
-            download(songDdetails['_id'])
+            result = download(songDdetails['_id'])
     except Exception:
         print('singerPopularSong有问题')
         print(url)
         time.sleep(0.4)
-        singerPopularSong(id)
+        # singerPopularSong(id)
+        return None
 
 
 # 获取所有的榜单id
@@ -186,19 +188,21 @@ def download(id):
     url = 'http://music.163.com/song/media/outer/url?id=%s.mp3' % id
     songDdetails['downloadURL'] = url
     print(songDdetails)
-    music = open('/media/yang/F808-8FE0/music/' + songDdetails['songName']+'.mp3','wb')
-    try:
-        response = session.get(url=url,headers=headers)
-        if response.status_code == 200:
-            music.write(response.content)
-            music.close()
-            insert_db()
-        else:
-            return None
-    except Exception:
-        print('download有问题')
-        time.sleep(0.5)
-        download(id)
+    music = open('J:/music/' + songDdetails['songName']+'.mp3','wb')
+    # try:
+    response = session.get(url=url,headers=headers)
+    if response.status_code == 200:
+        music.write(response.content)
+        music.close()
+        return 1
+        # insert_db()
+    else:
+        return None
+    # except Exception:
+    #     print('download有问题')
+    #     time.sleep(0.5)
+    #     # download(id)
+    #     return None
 
 # 存入数据库歌曲信息
 def insert_db():
