@@ -67,7 +67,6 @@ def myProcess():
             break
 
 
-
 # 获取当前歌手分类下的分页信息
 def singPage(id):
     url = 'https://music.163.com/discover/artist/cat?id=%s&initial=%s' % (singerInformation['singClassifyId'],id)
@@ -79,10 +78,8 @@ def singPage(id):
             # 循环分页,获取所有分页的歌手href
             for item in pageHref:
                 href = item['href']
-                # print(href)
                 singList(href)
                 continue
-                # break
             break
         except ReadTimeout:  # 访问超时的错误
             print('singPage Timeout')
@@ -123,7 +120,6 @@ def singList(href):
                 # insert_mysql()
                 singerPopularSong(id)
                 continue
-                # break
             break
         except ReadTimeout:  # 访问超时的错误
             print('singList Timeout')
@@ -159,7 +155,6 @@ def singerPopularSong(id):
                 songDdetails['_id'] = str(re.findall(r'id=(\d+)',href))[2:-2]
                 download(songDdetails['_id'])
                 continue
-                # break
             break
         except ReadTimeout:  # 访问超时的错误
             print('singerPopularSong Timeout')
@@ -247,6 +242,8 @@ def songMessage():
         songDdetails['_id'] = track['id']
         download(songDdetails['_id'])
         print(songDdetails)
+
+
 
 # 根据歌曲的id值下载歌曲
 def download(id):
