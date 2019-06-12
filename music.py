@@ -25,6 +25,7 @@ singerInformation ={}
 
 # 获取歌手分类的id
 def singClassifyList():
+    print('123')
     url = 'https://music.163.com/discover/artist'
     try:
         response = session.get(url=url,headers=headers,timeout=3)
