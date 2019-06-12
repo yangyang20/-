@@ -1,4 +1,4 @@
-from builtins import Exception
+from requests.exceptions import ReadTimeout, ConnectionError, RequestException
 import time
 from concurrent.futures import ProcessPoolExecutor
 import requests
@@ -10,21 +10,24 @@ from config import *
 
 headers ={
     'User-Agent':'Mozilla/5.0 (Windows NT 6.3; WOW64; rv:41.0) Gecko/20100101 Firefox/41.0',
-    'X-Requested-With':'XMLHttpRequest'
+    'X-Requested-With':'XMLHttpRequest',
+    'Connection': 'close'
 }
+
 session = requests.session()
+# 避免连接太多没有关闭导致socket超时
+session.keep_alive = False
 # 歌曲信息
 songDdetails = {}
 # 歌手信息
 singerInformation ={}
-# 计数器
-Counter = {}
+
 
 # 获取歌手分类的id
 def singClassifyList():
     url = 'https://music.163.com/discover/artist'
     try:
-        response = session.get(url=url,headers=headers)
+        response = session.get(url=url,headers=headers,timeout=3)
         soup = BeautifulSoup(response.text,"html5lib")
         classify = soup.select(".cat-flag")
         for item in classify:
@@ -34,85 +37,146 @@ def singClassifyList():
             # 解析出歌手分类名称的id
             singerInformation['singClassifyId'] = str(re.findall(r'id=(\d{4})',href))[2:-2]
             if singerInformation['singClassifyId']:
-            # 调用多进程分别爬去不同分页
+            # 调用多进程分别爬不同分页
                 myProcess()
             # 单进程就使用下面的
             #     for i in range(65, 90):
             #         singPage(i)
-    except Exception:
-        print('singClassifyList有问题')
-        time.sleep(0.1)
-        singClassifyList()
-# 获取当前歌手分类下的分页信息
-def singPage(id):
-    url = 'https://music.163.com/discover/artist/cat?id=%s&initial=%s' % (singerInformation['singClassifyId'],id)
-    try:
-        response = session.get(url=url,headers=headers)
-        soup = BeautifulSoup(response.text, "html5lib")
-        pageHref = soup.select("#initial-selector a")
-        # 循环分页,获取所有分页的歌手href
-        for item in pageHref:
-            href = item['href']
-            result = singList(href)
-    except Exception:
-        print('singPage有问题')
+            #         break
+    except ReadTimeout:  # 访问超时的错误
+        print('singClassifyList Timeout')
         print(url)
-        time.sleep(0.2)
-        # singPage(id)
         return None
+    except ConnectionError:  # 网络中断连接错误
+        requests.status_code = "Connection refused"
+        print('singClassifyList Connect error')
+        print(url)
+        return None
+    except RequestException:  # 父类错误
+        print('singClassifyList Error')
+        print(url)
+        return None
+
+
 # 多进程爬取
 def myProcess():
     with ProcessPoolExecutor(max_workers=26) as executor:
         for i in range(65, 90):
             # 创建26个进程，分别执行A-Z分类
             executor.submit(singPage, i)
+            break
+
+
+
+# 获取当前歌手分类下的分页信息
+def singPage(id):
+    url = 'https://music.163.com/discover/artist/cat?id=%s&initial=%s' % (singerInformation['singClassifyId'],id)
+    while True:
+        try:
+            response = session.get(url=url,headers=headers,timeout=3)
+            soup = BeautifulSoup(response.text, "html5lib")
+            pageHref = soup.select("#initial-selector a")
+            # 循环分页,获取所有分页的歌手href
+            for item in pageHref:
+                href = item['href']
+                # print(href)
+                singList(href)
+                continue
+                # break
+            break
+        except ReadTimeout:  # 访问超时的错误
+            print('singPage Timeout')
+            print(url)
+            time.sleep(1)
+            # return None
+        except ConnectionError:  # 网络中断连接错误
+            requests.status_code = "Connection refused"
+            print('singPage Connect error')
+            print(url)
+            time.sleep(1)
+            # return None
+        except RequestException:  # 父类错误
+            print('singPage Error')
+            print(url)
+            return None
+
 
 # 获取所有的歌手的id
 def singList(href):
     url = 'https://music.163.com%s' % href
-    try:
-        response = session.get(url=url,headers=headers)
-        soup = BeautifulSoup(response.text,"html5lib")
-        singList = soup.select('.nm-icn')
-        for item in singList:
-            # 歌手名称
-            text = item.string
-            href = item['href']
-            # 解析出的歌手id
-            id = str(re.findall(r'id=(\d+)',href))[2:-2]
-            songDdetails['singer'] = text
-            singerInformation['singer'] = text
-            # 以歌手的id为索引,方便查歌曲信息
-            singerInformation['singId'] = int(id)
-            songDdetails['singId'] = int(id)
-            insert_mysql()
-            result = singerPopularSong(id)
-    except Exception:
-        print('singList有问题')
-        print(url)
-        time.sleep(0.3)
-        # singList(href)
-        return None
+    while True:
+        try:
+            response = session.get(url=url,headers=headers,timeout=3)
+            soup = BeautifulSoup(response.text,"html5lib")
+            singList = soup.select('.nm-icn')
+            for item in singList:
+                # 歌手名称
+                text = item.string
+                href = item['href']
+                # 解析出的歌手id
+                id = str(re.findall(r'id=(\d+)',href))[2:-2]
+                songDdetails['singer'] = text
+                singerInformation['singer'] = text
+                # 以歌手的id为索引,方便查歌曲信息
+                singerInformation['singId'] = int(id)
+                songDdetails['singId'] = int(id)
+                # insert_mysql()
+                singerPopularSong(id)
+                continue
+                # break
+            break
+        except ReadTimeout:  # 访问超时的错误
+            print('singList Timeout')
+            print(url)
+            time.sleep(1)
+            # return None
+        except ConnectionError:  # 网络中断连接错误
+            requests.status_code = "Connection refused"
+            print('singList Connect error')
+            print(url)
+            time.sleep(1)
+            # return None
+        except RequestException:  # 父类错误
+            print('singList Error')
+            print(url)
+            return None
+
+
+
 # 获取每个歌手热门歌曲的id
 def singerPopularSong(id):
     url = 'https://music.163.com/artist?id=%s' % id
-    try:
-        response = session.get(url=url,headers=headers)
-        soup = BeautifulSoup(response.text,"html5lib")
-        a = soup.select("ul.f-hide a")
-        for item in a:
-            href = item['href']
-            text = item.text
-            songDdetails['songName'] = text
-            # 将链接中的歌曲id解析出来
-            songDdetails['_id'] = str(re.findall(r'id=(\d+)',href))[2:-2]
-            result = download(songDdetails['_id'])
-    except Exception:
-        print('singerPopularSong有问题')
-        print(url)
-        time.sleep(0.4)
-        # singerPopularSong(id)
-        return None
+    while True:
+        try:
+            response = session.get(url=url,headers=headers,timeout=3)
+            soup = BeautifulSoup(response.text,"html5lib")
+            a = soup.select("ul.f-hide a")
+            for item in a:
+                href = item['href']
+                text = item.text
+                songDdetails['songName'] = text
+                # 将链接中的歌曲id解析出来
+                songDdetails['_id'] = str(re.findall(r'id=(\d+)',href))[2:-2]
+                download(songDdetails['_id'])
+                continue
+                # break
+            break
+        except ReadTimeout:  # 访问超时的错误
+            print('singerPopularSong Timeout')
+            print(url)
+            time.sleep(1)
+            # return None
+        except ConnectionError:  # 网络中断连接错误
+            requests.status_code = "Connection refused"
+            print('singerPopularSong Connect error')
+            print(url)
+            time.sleep(1)
+            # return None
+        except RequestException:  # 父类错误
+            print('singerPopularSong Error')
+            print(url)
+            return None
+
 
 
 # 获取所有的榜单id
@@ -188,22 +252,60 @@ def songMessage():
 def download(id):
     url = 'http://music.163.com/song/media/outer/url?id=%s.mp3' % id
     songDdetails['downloadURL'] = url
-    print(songDdetails)
-    # music = open('J:/music/' + songDdetails['songName']+'.mp3','wb')
-    try:
-        response = session.get(url=url,headers=headers)
-        if response.status_code == 200:
-            # music.write(response.content)
-            # music.close()
-            # return 1
-            insert_db()
-        else:
+    while True:
+        try:
+            response = session.get(url=url,headers=headers,timeout = 5)
+            if response.status_code == 200:
+                writeDetails(id)
+                break
+            else:
+                return None
+        except ReadTimeout:  # 访问超时的错误
+            print('download Timeout')
+            print(url)
+            time.sleep(1)
+            # return None
+        except ConnectionError:  # 网络中断连接错误
+            requests.status_code = "Connection refused"
+            print('download Connect error')
+            print(url)
+            time.sleep(1)
+            # return None
+        except RequestException:  # 父类错误
+            print('download Error')
+            print(url)
             return None
-    except Exception:
-        print('download有问题')
-        time.sleep(0.5)
-        # download(id)
-        return None
+
+
+# 歌曲专辑,图片信息
+def writeDetails(id):
+    url = 'https://music.163.com/song?id=%s' % id
+    while True:
+        try:
+            response = session.get(url=url,headers=headers,timeout=3)
+            soup = BeautifulSoup(response.text,"html5lib")
+            img = soup.select("img.j-img")[0]['src']
+            album = soup.select("head > meta:nth-child(32)")[0]['content']
+            songDdetails['img'] = img
+            songDdetails['album'] = album
+            print(songDdetails)
+            insert_db()
+            break
+        except ReadTimeout:  # 访问超时的错误
+            print('writeDetails Timeout')
+            print(url)
+            time.sleep(1)
+            # return None
+        except ConnectionError:  # 网络中断连接错误
+            requests.status_code = "Connection refused"
+            print('writeDetails Connect error')
+            print(url)
+            time.sleep(1)
+            # return None
+        except RequestException:  # 父类错误
+            print('writeDetails Error')
+            print(url)
+            return None
 
 # 存入数据库歌曲信息
 def insert_db():
