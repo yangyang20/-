@@ -1,6 +1,6 @@
 from requests.exceptions import ReadTimeout, ConnectionError, RequestException
 import time
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor,ThreadPoolExecutor
 import requests
 import pymongo
 import pymysql
@@ -25,24 +25,23 @@ singerInformation ={}
 
 # 获取歌手分类的id
 def singClassifyList():
+    global singerInformation
     url = 'https://music.163.com/discover/artist'
     try:
         response = session.get(url=url,headers=headers,timeout=3)
         soup = BeautifulSoup(response.text,"html5lib")
         classify = soup.select(".cat-flag")
+        singClassifyId = []
         for item in classify:
             # 歌手分类名称
             singerInformation['singClassify'] = item.string
             href = item['href']
             # 解析出歌手分类名称的id
-            singerInformation['singClassifyId'] = str(re.findall(r'id=(\d{4})',href))[2:-2]
+            singerInformation['singClassifyId'] = str(re.findall(r'id=(\d{4})', href))[2:-2]
             if singerInformation['singClassifyId']:
-            # 调用多进程分别爬不同分页
-                myProcess()
-            # 单进程就使用下面的
-            #     for i in range(65, 90):
-            #         singPage(i)
-            #         break
+                singClassifyId.append(singerInformation['singClassifyId'])
+        # 调用多进程爬取不同分类
+        myProcess(singClassifyId)
     except ReadTimeout:  # 访问超时的错误
         print('singClassifyList Timeout')
         print(url)
@@ -58,18 +57,27 @@ def singClassifyList():
         return None
 
 
-# 多进程爬取
-def myProcess():
-    with ProcessPoolExecutor(max_workers=26) as executor:
-        for i in range(65, 90):
-            # 创建26个进程，分别执行A-Z分类
-            executor.submit(singPage, i)
+
+# 多进程爬取分类
+def myProcess(singClassifyId):
+    with ProcessPoolExecutor(max_workers=len(singClassifyId)) as executor:
+        for i in singClassifyId:
+            # 多进程之间不能共享全局变量
+            executor.submit(myThread, i)
+            # print(i)
+            continue
+
+# 多线程爬取分类下的分页
+def myThread(singId):
+    with ThreadPoolExecutor(26) as thread:
+        for i in range(65,90):
+            # 创建26个线程，分别执行A-Z分类
+            thread.submit(singPage, singId,i)
             break
 
-
 # 获取当前歌手分类下的分页信息
-def singPage(id):
-    url = 'https://music.163.com/discover/artist/cat?id=%s&initial=%s' % (singerInformation['singClassifyId'],id)
+def singPage(singClassifyId,id):
+    url = 'https://music.163.com/discover/artist/cat?id=%s&initial=%s' % (singClassifyId,id)
     while True:
         try:
             response = session.get(url=url,headers=headers,timeout=3)
@@ -79,6 +87,7 @@ def singPage(id):
             for item in pageHref:
                 href = item['href']
                 singList(href)
+                # break
                 continue
             break
         except ReadTimeout:  # 访问超时的错误
@@ -241,7 +250,6 @@ def songMessage():
         songDdetails['picUrl'] = track['al']['picUrl']
         songDdetails['_id'] = track['id']
         download(songDdetails['_id'])
-        print(songDdetails)
 
 
 
@@ -286,7 +294,7 @@ def writeDetails(id):
             songDdetails['img'] = img
             songDdetails['album'] = album
             print(songDdetails)
-            insert_db()
+            # insert_db()
             break
         except ReadTimeout:  # 访问超时的错误
             print('writeDetails Timeout')
@@ -338,3 +346,5 @@ if __name__=='__main__':
     # rankingList()
     # 根据歌手抓取
     singClassifyList()
+    # 我的喜欢歌曲列表
+    # songMessage

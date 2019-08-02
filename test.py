@@ -1,21 +1,8 @@
 import pymysql
-
-singerInformation = {
-    'singClassify':'中国',
-    'singer':'罗阳',
-    'singId':123456789
-}
-
-conn = pymysql.connect(host='localhost',
-                             port=3306,
-                             user='root',
-                             password='393622951',
-                             db='WangYiYun',
-                             charset='utf8')
-cur = conn.cursor()
-effect_row = cur.execute('INSERT INTO `singerInformation`( `singClassify`,`singer`,`singId`) VALUES (%(singClassify)s, %(singer)s ,%(singId)s)',singerInformation)
-#effect_row = cur.execute('INSERT INTO `singerInformation` (`singClassify`,`singer`,`singId`) VALUES (%s, %s, %s)', ('mary','luoy' ,'18'))
-print(effect_row)
-conn.commit()
-cur.close()
-conn.close()
+def insert_db():
+    client = pymongo.MongoClient(MONGODB_URL)
+    db = client[MONGODB_DB]
+    table = db[MONGODB_TABLE]
+    # 数据再次插入的时候避免重复
+    table.update({'_id': songDdetails['_id']}, {'$set': songDdetails}, True)
+    # result = table.insert_one(songDdetails)
