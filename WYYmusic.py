@@ -2,11 +2,12 @@ from requests.exceptions import ReadTimeout, ConnectionError, RequestException
 import time
 from concurrent.futures import ProcessPoolExecutor,ThreadPoolExecutor
 import requests
+from multiprocessing import Manager
 import pymongo
 import pymysql
 import re
 from bs4 import BeautifulSoup
-from config import *
+# from config import *
 
 headers ={
     'User-Agent':'Mozilla/5.0 (Windows NT 6.3; WOW64; rv:41.0) Gecko/20100101 Firefox/41.0',
@@ -21,27 +22,30 @@ session.keep_alive = False
 songDdetails = {}
 # 歌手信息
 singerInformation ={}
-
+# 歌手分类
+singerClassify = {}
+# mysql数据库信息
+conn = pymysql.connect(host='127.0.0.1', user='root', password="393622951", db='WangYiYun')
+cur = conn.cursor()
 
 # 获取歌手分类的id
 def singClassifyList():
-    global singerInformation
     url = 'https://music.163.com/discover/artist'
     try:
         response = session.get(url=url,headers=headers,timeout=3)
         soup = BeautifulSoup(response.text,"html5lib")
         classify = soup.select(".cat-flag")
-        singClassifyId = []
+        singClassifyIdArr = []
         for item in classify:
-            # 歌手分类名称
-            singerInformation['singClassify'] = item.string
             href = item['href']
             # 解析出歌手分类名称的id
-            singerInformation['singClassifyId'] = str(re.findall(r'id=(\d{4})', href))[2:-2]
-            if singerInformation['singClassifyId']:
-                singClassifyId.append(singerInformation['singClassifyId'])
+            singClassifyId = str(re.findall(r'id=(\d{4})', href))[2:-2]
+            if singClassifyId:
+                singClassifyIdArr.append(singClassifyId)
+                # 歌手分类名称,此处暂未用到
+                singerClassify[singClassifyId] = item.string
         # 调用多进程爬取不同分类
-        myProcess(singClassifyId)
+        myProcess(singClassifyIdArr)
     except ReadTimeout:  # 访问超时的错误
         print('singClassifyList Timeout')
         print(url)
@@ -59,61 +63,34 @@ def singClassifyList():
 
 
 # 多进程爬取分类
-def myProcess(singClassifyId):
-    with ProcessPoolExecutor(max_workers=len(singClassifyId)) as executor:
-        for i in singClassifyId:
-            # 多进程之间不能共享全局变量
-            executor.submit(myThread, i)
-            # print(i)
-            continue
+def myProcess(singClassifyIdArr):
+    with ProcessPoolExecutor(max_workers=len(singClassifyIdArr)) as executor:
+            for i in singClassifyIdArr:
+                # 多进程之间不能共享全局变量
+                executor.submit(myThread, i)
+                # continue
+                break
 
 # 多线程爬取分类下的分页
 def myThread(singId):
-    with ThreadPoolExecutor(26) as thread:
+    with ThreadPoolExecutor(max_workers=26) as thread:
         for i in range(65,90):
             # 创建26个线程，分别执行A-Z分类
-            thread.submit(singPage, singId,i)
+            thread.submit(singList, singId,i)
             break
 
-# 获取当前歌手分类下的分页信息
-def singPage(singClassifyId,id):
-    url = 'https://music.163.com/discover/artist/cat?id=%s&initial=%s' % (singClassifyId,id)
-    while True:
-        try:
-            response = session.get(url=url,headers=headers,timeout=3)
-            soup = BeautifulSoup(response.text, "html5lib")
-            pageHref = soup.select("#initial-selector a")
-            # 循环分页,获取所有分页的歌手href
-            for item in pageHref:
-                href = item['href']
-                singList(href)
-                # break
-                continue
-            break
-        except ReadTimeout:  # 访问超时的错误
-            print('singPage Timeout')
-            print(url)
-            time.sleep(1)
-            # return None
-        except ConnectionError:  # 网络中断连接错误
-            requests.status_code = "Connection refused"
-            print('singPage Connect error')
-            print(url)
-            time.sleep(1)
-            # return None
-        except RequestException:  # 父类错误
-            print('singPage Error')
-            print(url)
-            return None
 
 
 # 获取所有的歌手的id
-def singList(href):
-    url = 'https://music.163.com%s' % href
+def singList(singClassifyId,id):
+    url = 'https://music.163.com/discover/artist/cat?id=%s&initial=%s' % (singClassifyId, id)
     while True:
         try:
             response = session.get(url=url,headers=headers,timeout=3)
             soup = BeautifulSoup(response.text,"html5lib")
+            # 歌手分类名称与分类ID
+            singerInformation['singClassifyId'] = singClassifyId;
+            singerInformation['singerClassify'] = soup.select('.d-flag')[0].string
             singList = soup.select('.nm-icn')
             for item in singList:
                 # 歌手名称
@@ -293,6 +270,7 @@ def writeDetails(id):
             album = soup.select("head > meta:nth-child(32)")[0]['content']
             songDdetails['img'] = img
             songDdetails['album'] = album
+            print(singerClassify)
             print(songDdetails)
             # insert_db()
             break
@@ -314,17 +292,23 @@ def writeDetails(id):
 
 # 存入数据库歌曲信息
 def insert_db():
-    client = pymongo.MongoClient(MONGODB_URL)
-    db = client[MONGODB_DB]
-    table = db[MONGODB_TABLE]
+    # client = pymongo.MongoClient(MONGODB_URL)
+    # db = client[MONGODB_DB]
+    # table = db[MONGODB_TABLE]
     # 数据再次插入的时候避免重复
-    table.update({'_id': songDdetails['_id']}, {'$set': songDdetails}, True)
+    # table.update({'_id': songDdetails['_id']}, {'$set': songDdetails}, True)
     # result = table.insert_one(songDdetails)
+    effect_row = cur.execute(
+        'INSERT IGNORE INTO `song_details`( `download_url`,`singer_id`,`singer`,`songName`,`album`,`img`) VALUES (%(downloadURL)s,%(singId)s, %(singer)s ,%(songName)s,%(album)s,%(img)s)',
+        songDdetails)
+    if effect_row:
+        # 这一步才是真正的提交数据
+        conn.commit()
+    cur.close()
+    conn.close()
 
 # 存入歌手分类与歌手信息
 def insert_mysql():
-    conn = pymysql.connect(host='127.0.0.1', user='root', password="393622951", db='WangYiYun')
-    cur = conn.cursor()
     # 字典的插入方式
     effect_row = cur.execute(
         'INSERT IGNORE INTO `singerInformation`( `singClassify`,`singClassifyId`,`singer`,`singId`) VALUES (%(singClassify)s,%(singClassifyId)s, %(singer)s ,%(singId)s)',
@@ -334,7 +318,7 @@ def insert_mysql():
         conn.commit()
     effect = cur.execute(
         'INSERT IGNORE INTO `songsClassifiedNames`( `singClassifyId`,`singClassify`) VALUES (%s,%s)',
-        (singerInformation['singClassifyId'],singerInformation['singClassify']))
+        (singerInformation['singClassifyId'], singerInformation['singClassify']))
     if effect:
         conn.commit()
     cur.close()
